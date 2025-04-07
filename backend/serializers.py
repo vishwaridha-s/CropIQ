@@ -3,7 +3,7 @@ from .models import soil
 class Sensor(serializers.ModelSerializer):
     class Meta:
         model=soil
-        fields="_all_"
+        fields="__all__"
     # temperature = serializers.FloatField()
     # moisture = serializers.FloatField()
 from django.contrib.auth.models import User
