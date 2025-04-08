@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from rest_framework import status
 import ee
+import datetime
 
 class soildata(APIView):
     def get(self, request):
@@ -21,7 +22,7 @@ class soildata(APIView):
         serialdata = Sensor(data=datas)
         if serialdata.is_valid():
             temp = serialdata.validated_data.get("temperature")
-            moist = serialdata.validated_data.get("moisture")
+            moist = serialdata.validated_data.get("humidity")
             mongo_data.insert_one({"temperature": temp, "moisture": moist})
             return Response({"message": "Soil data added successfully!"})
         return Response(serialdata.errors, status=400)
@@ -106,6 +107,7 @@ class SubmitLocationView(APIView):
 
 
 def analyze_soil(longitude, latitude):
+    mongo_soil = settings.SETTINGS_VARS["mongo_soil"]
     location = ee.Geometry.Point([longitude, latitude])
     buffer = location.buffer(100)
 
@@ -154,6 +156,8 @@ def analyze_soil(longitude, latitude):
     soil_texture = texture_classes.get(int(tex_code), 'Unknown')
     inferred_type = 'Unknown'
 
+    mongo_soil.insert_one({"district":district_name,"ph":ph,"texture":soil_texture})
+
     if ph < 5.5 and oc < 1 and tex_code in [11, 12]:
         inferred_type = 'Laterite Soil'
     elif ph < 6.5 and oc < 1.5 and tex_code in [10, 11, 12]:
@@ -170,6 +174,7 @@ def analyze_soil(longitude, latitude):
         inferred_type = 'Red Soil'
     else:
         inferred_type = f'{soil_texture} (Texture-based type)'
+    
 
     return {
         'District': district_name,
@@ -181,138 +186,63 @@ def analyze_soil(longitude, latitude):
         'Fertility Estimate (NPK, kg/ha)': round(oc * 10, 2) if oc else 'N/A',
         'Inferred Soil Type': inferred_type
     }
-import pandas as pd
-import numpy as np
-from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import accuracy_score, confusion_matrix
-from catboost import CatBoostClassifier
-from sklearn.naive_bayes import GaussianNB
-import matplotlib.pyplot as plt
-import seaborn as sns
-# Load dataset
-crop_df = pd.read_csv("Crop_recommendation.csv")  # temp, moisture, ph, crop
+import requests
+import traceback
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from django.conf import settings
+from datetime import datetime
 
-# Encode target
-le = LabelEncoder()
-crop_df['crop_encoded'] = le.fit_transform(crop_df['label'])
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from django.conf import settings
+from datetime import datetime
+import requests
+import traceback
 
-X = crop_df[['temperature', 'humidity', 'ph']]
-y = crop_df['crop_encoded']
+class PredictCropView(APIView):
+    def get(self, request):
+        try:
+            # Get latest sensor data from MongoDB
+            mongo_data = settings.SETTINGS_VARS["mongo_data"]
+            mongo_soil=settings.SETTINGS_VARS["mongo_soil"]
+            latest_sensor = mongo_data.find_one(sort=[('_id', -1)])
+            latest_data=mongo_soil.find_one(sort=[('_id',-1)])
 
-# Split
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+            # Current month in lowercase
+            month = datetime.now().strftime("%B").lower()
+            temperature=latest_sensor["temperature"]
+            moisture=latest_sensor["moisture"]
+            district=latest_data["district"]
+            ph=latest_data["ph"]
+            texture=latest_data["texture"]
+            playload={
+                "temperature":temperature,
+                "humidity":moisture,
+                "ph":ph,
+                "district":district,
+                "month":month,
+                "soil_texture":texture
+            }
+            response = requests.post(
+                "https://c270-35-237-185-90.ngrok-free.app/predict",  # Replace with your actual ngrok URL
+                json=playload,
+                headers={"Content-Type": "application/json"}
+            )
 
-# Best model: CatBoostClassifier
-catboost = CatBoostClassifier(verbose=0)
-catboost.fit(X_train, y_train)
-y_pred = catboost.predict(X_test)
+            print("📥 Flask Response Status:", response.status_code)
+            print("📥 Flask Response Body:", response.text)
 
-# Baseline model
-baseline = GaussianNB()
-baseline.fit(X_train, y_train)
-base_pred = baseline.predict(X_test)
-acc_cat = accuracy_score(y_test, y_pred)
-acc_base = accuracy_score(y_test, base_pred)
+            if response.status_code == 200:
+                return Response(response.json())
+            else:
+                return Response({
+                    "error": "Prediction request failed",
+                    "status_code": response.status_code,
+                    "details": response.text
+                }, status=response.status_code)
 
-plt.bar(["CatBoost", "GaussianNB"], [acc_cat*100, acc_base*100], color=['green', 'red'])
-plt.title("Model Accuracy Comparison")
-plt.ylabel("Accuracy (%)")
-plt.show()
-params = {
-    'depth': [6, 8],
-    'learning_rate': [0.05, 0.1],
-    'iterations': [200, 300]
-}
-grid = GridSearchCV(CatBoostClassifier(verbose=0), params, cv=3, scoring='accuracy')
-grid.fit(X_train, y_train)
-catboost_best = grid.best_estimator_
-def predict_top5_crops(temp, moisture, ph, model, encoder):
-    input_df = pd.DataFrame([[temp, moisture, ph]], columns=['temp', 'moisture', 'ph'])
-    probs = model.predict_proba(input_df)[0]
-    top5_idx = np.argsort(probs)[::-1][:5]
-    return encoder.inverse_transform(top5_idx)
-rice_df = pd.read_csv("RICE_TNAU_STXT.csv")
-
-def suggest_rice_varieties(district, month_str, soil_texture):
-    """
-    Suggests rice varieties based on district, full month name, and soil texture.
-
-    Args:
-        district (str): District name.
-        month_str (str): Full month name (e.g., 'July').
-        soil_texture (str): Soil texture.
-
-    Returns:
-        list: List of matching rice varieties.
-    """
-    # Normalize input format
-    month_str = month_str.strip().lower().capitalize()
-    district = district.strip().lower()
-    soil_texture = soil_texture.strip().lower()
-
-    # Normalize columns in the dataset
-    rice_df['TNDST'] = rice_df['TNDST'].str.strip().str.lower()
-    rice_df['STMT'] = rice_df['STMT'].str.strip().str.lower().str.capitalize()
-    rice_df['EDMT'] = rice_df['EDMT'].str.strip().str.lower().str.capitalize()
-    rice_df['STXT'] = rice_df['STXT'].str.strip().str.lower()
-
-    # Filter dataset based on input
-    filtered_df = rice_df[
-        (rice_df['TNDST'] == district) &
-        (rice_df['STXT'] == soil_texture) &
-        (rice_df['STMT'] <= month_str) &
-        (rice_df['EDMT'] >= month_str)
-    ]
-
-    return filtered_df['VRTS'].unique()
-def final_prediction(temp, moisture, ph, district, month, soil_texture):
-    """
-    Predicts top 5 crops with confidence and suggests rice varieties if rice is among them.
-    """
-    # Get top 5 predictions with confidence
-    top_crops = predict_top5_crops(temp, moisture, ph, catboost, le)
-    print("🌿 Top 5 Crop Predictions with Confidence:")
-    for crop, confidence in top_crops:
-        print(f" - {crop}: {confidence:.2f}%")
-
-    # Check if rice is among the predictions
-    crop_names = [crop.lower() for crop, _ in top_crops]
-    if "rice" in crop_names:
-        print("\n🌾 Since 'Rice' is among top crops, suggesting suitable rice varieties...")
-
-        varieties = suggest_rice_varieties(district, month, soil_texture)
-
-        if len(varieties) == 0:
-            print("❗ No matching rice varieties found for the given configuration.")
-        else:
-            print("✅ Recommended Rice Varieties:")
-            for v in varieties:
-                print(" -", v)
-
-    else:
-        print("\n🌽 'Rice' not in top 5 suggestions. Try growing another from above.")
-def predict_top5_crops(temp, moisture, ph, model, label_encoder):
-    """
-    Predicts the top 5 crop suggestions with their confidence scores.
-
-    Returns:
-        List of tuples: (Crop, Confidence %)
-    """
-    # Changed 'moisture' to 'humidity' in columns
-    input_data = pd.DataFrame([[temp, moisture, ph]], columns=['temperature', 'humidity', 'ph'])
-    proba = model.predict_proba(input_data)[0]  # Get probability for each class
-    crop_classes = label_encoder.inverse_transform(np.arange(len(proba)))
-
-    crop_confidence = list(zip(crop_classes, proba * 100))
-    top5 = sorted(crop_confidence, key=lambda x: x[1], reverse=True)[:5]
-
-    return top5  # List of (crop, probability %) tuples
-final_prediction(
-    temp=20.87,
-    moisture=82.00,
-    ph=6.5,
-    district="Kanchipuram",
-    month="august",
-    soil_texture="Loamy sand"
-)
+        except Exception as e:
+            print("❌ Exception Occurred:")
+            traceback.print_exc()
+            return Response({'error': str(e)}, status=500)

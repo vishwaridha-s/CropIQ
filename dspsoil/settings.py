@@ -28,6 +28,7 @@ mongo_client = MongoClient(MONGO_URI)
 mongo_db = mongo_client["new"]
 mongo_users = mongo_db["users"]
 mongo_data = mongo_db["data"]
+mongo_soil=mongo_db["soildata"]
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
@@ -150,7 +151,8 @@ SETTINGS_VARS = {
     "mongo_client": mongo_client,
     "mongo_db": mongo_db,
     "mongo_users": mongo_users,
-    "mongo_data": mongo_data
+    "mongo_data": mongo_data,
+    "mongo_soil":mongo_soil
 }
 
 globals().update(SETTINGS_VARS)
@@ -161,3 +163,4 @@ django_settings.mongo_client = mongo_client
 django_settings.mongo_db = mongo_db
 django_settings.mongo_users = mongo_users
 django_settings.mongo_data = mongo_data
+django_settings.mongo_soil = mongo_soil
