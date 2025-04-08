@@ -9,7 +9,8 @@ from rest_framework.decorators import api_view
 from rest_framework import status
 import ee
 import datetime
-
+import requests
+import traceback
 class soildata(APIView):
     def get(self, request):
         mongo_data = settings.SETTINGS_VARS["mongo_data"]
@@ -186,19 +187,7 @@ def analyze_soil(longitude, latitude):
         'Fertility Estimate (NPK, kg/ha)': round(oc * 10, 2) if oc else 'N/A',
         'Inferred Soil Type': inferred_type
     }
-import requests
-import traceback
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from django.conf import settings
-from datetime import datetime
 
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from django.conf import settings
-from datetime import datetime
-import requests
-import traceback
 
 class PredictCropView(APIView):
     def get(self, request):
