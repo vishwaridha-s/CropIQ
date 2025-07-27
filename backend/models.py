@@ -3,6 +3,7 @@ from django.db import models
 class soil(models.Model):
     moisture=models.FloatField(default=0)
     temperature=models.FloatField(default=0)
+    humidity=models.FloatField(default=0)
 
 class Soildata(models.Model):
     district = models.CharField(max_length=100)

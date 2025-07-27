@@ -24,10 +24,13 @@ class soildata(APIView):
         if serialdata.is_valid():
             temp = serialdata.validated_data.get("temperature")
             moist = serialdata.validated_data.get("humidity")
-            mongo_data.insert_one({"temperature": temp, "moisture": moist})
+            humid= serialdata.validated_data.get("moisture")
+            data_to_insert = {"temperature": temp, "moisture": moist, "humidity": humid}
+            mongo_data.insert_one(data_to_insert)
+        # Print to server console (CMD)
+            print("Inserted data:", data_to_insert)
             return Response({"message": "Soil data added successfully!"})
         return Response(serialdata.errors, status=400)
-
 
 class users(APIView):
     def post(self, request, *args, **kwargs):
@@ -147,7 +150,7 @@ def analyze_soil(longitude, latitude):
         7: 'Loam', 8: 'Silt Loam', 9: 'Silt',
         10: 'Sandy Loam', 11: 'Loamy Sand', 12: 'Sand'
     }
-
+    
     ph = result['ph']
     oc = result['oc_percent']
     tex_code = result['texture_code']
@@ -199,7 +202,7 @@ class PredictCropView(APIView):
             latest_data=mongo_soil.find_one(sort=[('_id',-1)])
 
             # Current month in lowercase
-            month = datetime.now().strftime("%B").lower()
+            month = "april"
             temperature=latest_sensor["temperature"]
             moisture=latest_sensor["moisture"]
             district=latest_data["district"]
@@ -214,7 +217,7 @@ class PredictCropView(APIView):
                 "soil_texture":texture
             }
             response = requests.post(
-                "https://c270-35-237-185-90.ngrok-free.app/predict",  # Replace with your actual ngrok URL
+                "https://ad47-34-74-41-202.ngrok-free.app/predict",  # Replace with your actual ngrok URL
                 json=playload,
                 headers={"Content-Type": "application/json"}
             )
