@@ -67,7 +67,7 @@ CropIQ is a smart agricultural decision-support tool that analyzes soil paramete
    ```bash
    git clone https://github.com/yourusername/cropiq.git
 
-### 2. Run the Backend
+2. ***Run the Backend:***
 
 ```bash
 cd backend
